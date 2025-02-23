@@ -17,7 +17,52 @@ Including another URLconf
 
 from django.contrib import admin
 from django.urls import path
+from django.http import HttpResponse
+from django.views.decorators.csrf import csrf_exempt
+from test_backend.services.stream import stream_video
+import json
+import threading
+
+
+@csrf_exempt
+def test_post(request):
+    if request.method == "POST":
+        print("123")
+        return HttpResponse("Success")
+    return HttpResponse("Method not allowed", status=405)
+
+
+@csrf_exempt
+def start_stream_video(request):
+    if request.method == "POST":
+        try:
+            data = json.loads(request.body)
+            room_name = data.get("room_name")
+
+            if not room_name:
+                return HttpResponse("room_name is required", status=400)
+
+            # Start stream_video in a separate thread
+            thread = threading.Thread(target=stream_video, args=(room_name,))
+            thread.daemon = (
+                True  # Make thread daemon so it exits when main thread exits
+            )
+            thread.start()
+
+            return HttpResponse("Success")
+        except json.JSONDecodeError:
+            return HttpResponse("Invalid JSON", status=400)
+    return HttpResponse("Method not allowed", status=405)
+
+
+@csrf_exempt
+def home(request):
+    return HttpResponse("Welcome to the test backend!")
+
 
 urlpatterns = [
+    path("", home, name="home"),
     path("admin/", admin.site.urls),
+    path("test/", test_post, name="test_post"),
+    path("stream/", start_stream_video, name="start_stream_video"),
 ]
