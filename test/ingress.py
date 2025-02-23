@@ -9,6 +9,9 @@ import numpy as np
 from livekit import api, rtc
 
 from dotenv import load_dotenv
+import cv2
+
+import subprocess
 
 load_dotenv(dotenv_path="../.env.local")
 
@@ -61,7 +64,9 @@ async def main(room: rtc.Room):
     publication = await room.local_participant.publish_track(track, options)
     logging.info("published track %s", publication.sid)
 
-    asyncio.ensure_future(draw_color_cycle(source))
+    # asyncio.ensure_future(draw_color_cycle(source))
+    # asyncio.ensure_future(draw_video_stream(source))
+    asyncio.ensure_future(draw_video_stream_ffmpeg(source))
 
     # uncomment the below to test Track Subscription Permissions
     # https://docs.livekit.io/home/client/tracks/publish/#subscription-permissions
@@ -112,6 +117,109 @@ async def draw_color_cycle(source: rtc.VideoSource):
         next_frame_time += 1 / FPS
         await asyncio.sleep(next_frame_time - perf_counter())
         # await asyncio.sleep(1 / FPS - code_duration)
+
+
+async def draw_video_stream(source: rtc.VideoSource):
+    # Open the video file
+    video = cv2.VideoCapture("videos/test.mp4")
+    if not video.isOpened():
+        logging.error("Error: Could not open video file")
+        return
+
+    # Get video properties
+    fps = video.get(cv2.CAP_PROP_FPS)
+    framerate = 1 / FPS  # Use constant FPS instead of video's native FPS
+    next_frame_time = perf_counter()
+
+    while True:
+        ret, frame = video.read()
+        if not ret:
+            # If we reach the end of the video, loop back to start
+            video.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            continue
+
+        # Resize frame if needed to match WIDTH x HEIGHT
+        frame = cv2.resize(frame, (WIDTH, HEIGHT))
+
+        # Convert BGR to RGBA (LiveKit expects RGBA)
+        frame_rgba = cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)
+
+        # Create VideoFrame and capture
+        video_frame = rtc.VideoFrame(
+            WIDTH, HEIGHT, rtc.VideoBufferType.RGBA, frame_rgba.tobytes()
+        )
+        source.capture_frame(video_frame)
+
+        # Maintain constant frame rate
+        next_frame_time += framerate
+        await asyncio.sleep(max(0, next_frame_time - perf_counter()))
+
+
+async def draw_video_stream_ffmpeg(source: rtc.VideoSource):
+    VIDEO_PATH = "videos/test.mp4"
+    FRAMERATE = 1 / FPS
+
+    # Start FFmpeg process to decode the video
+    ffmpeg_cmd = [
+        "ffmpeg",
+        "-i",
+        VIDEO_PATH,  # Input video file
+        "-an",  # Ignore audio
+        "-vf",
+        f"scale={WIDTH}:{HEIGHT}",  # Resize video
+        "-pix_fmt",
+        "rgba",  # Output pixel format
+        "-f",
+        "rawvideo",  # Output raw video
+        "-",  # Send output to stdout
+    ]
+
+    process = subprocess.Popen(
+        ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=10**8
+    )
+
+    if not process.stdout:
+        logging.error("Error: FFmpeg did not start properly")
+        return
+
+    frame_size = WIDTH * HEIGHT * 4  # RGBA format
+    next_frame_time = perf_counter()
+
+    try:
+        while True:
+            raw_frame = process.stdout.read(frame_size)
+            if not raw_frame:
+                logging.info("End of video stream, restarting...")
+                process.stdout.close()
+                process.terminate()
+                process = subprocess.Popen(
+                    ffmpeg_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    bufsize=10**8,
+                )
+                continue
+
+            frame_rgba = np.frombuffer(raw_frame, dtype=np.uint8).reshape(
+                (HEIGHT, WIDTH, 4)
+            )
+
+            # Create VideoFrame and capture
+            video_frame = rtc.VideoFrame(
+                WIDTH, HEIGHT, rtc.VideoBufferType.RGBA, frame_rgba.tobytes()
+            )
+            source.capture_frame(video_frame)
+
+            # Maintain constant frame rate
+            next_frame_time += FRAMERATE
+            await asyncio.sleep(max(0, next_frame_time - perf_counter()))
+
+    except Exception as e:
+        logging.error(f"Error during video streaming: {e}")
+
+    finally:
+        process.terminate()
+        process.wait()
 
 
 if __name__ == "__main__":
