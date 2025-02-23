@@ -36,7 +36,7 @@ async def main(room: rtc.Room):
         .with_grants(
             api.VideoGrants(
                 room_join=True,
-                room="my-room",
+                room="9l00-a365",
             )
         )
         .to_jwt()
@@ -156,7 +156,7 @@ async def draw_video_stream(source: rtc.VideoSource):
 
 
 async def draw_video_stream_ffmpeg(source: rtc.VideoSource):
-    VIDEO_PATH = "videos/test.mp4"
+    VIDEO_PATH = "videos/countdown_360p.mp4"
     FRAMERATE = 1 / FPS
 
     # Start FFmpeg process to decode the video
