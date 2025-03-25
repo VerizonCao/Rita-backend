@@ -4,6 +4,7 @@ import logging
 import os
 from signal import SIGINT, SIGTERM
 from time import perf_counter
+import time
 
 import numpy as np
 from livekit import api, rtc
@@ -31,12 +32,12 @@ async def main(room: rtc.Room):
 
     token = (
         api.AccessToken()
-        .with_identity("python-publisher")
+        .with_identity("python-publisher-1")
         .with_name("Python Publisher")
         .with_grants(
             api.VideoGrants(
                 room_join=True,
-                room="9l00-a365",
+                room="my-room",
             )
         )
         .to_jwt()
@@ -61,7 +62,9 @@ async def main(room: rtc.Room):
             max_bitrate=3_000_000,
         ),
     )
+    print("before publish")
     publication = await room.local_participant.publish_track(track, options)
+    print("finish publish")
     logging.info("published track %s", publication.sid)
 
     # asyncio.ensure_future(draw_color_cycle(source))
@@ -228,18 +231,46 @@ if __name__ == "__main__":
         handlers=[logging.FileHandler("publish_hue.log"), logging.StreamHandler()],
     )
 
-    loop = asyncio.get_event_loop()
-    room = rtc.Room(loop=loop)
+    import threading
+    import signal
 
-    async def cleanup():
-        await room.disconnect()
-        loop.stop()
+    # Create an event to signal thread shutdown
+    shutdown_event = threading.Event()
 
-    asyncio.ensure_future(main(room))
-    for signal in [SIGINT, SIGTERM]:
-        loop.add_signal_handler(signal, lambda: asyncio.ensure_future(cleanup()))
+    def run_livekit():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        room = rtc.Room(loop=loop)
 
+        async def cleanup():
+            await room.disconnect()
+            loop.stop()
+
+        asyncio.ensure_future(main(room))
+
+        try:
+            loop.run_forever()
+        finally:
+            loop.close()
+
+    # Signal handler for the main thread
+    def signal_handler(signum, frame):
+        print("Received signal, shutting down...")
+        shutdown_event.set()
+
+    # Set up signal handlers in main thread
+    signal.signal(SIGINT, signal_handler)
+    signal.signal(SIGTERM, signal_handler)
+
+    # Create and start the thread
+    livekit_thread = threading.Thread(target=run_livekit, daemon=True)
+    livekit_thread.start()
+
+    # Keep the main thread running until shutdown is signaled
     try:
-        loop.run_forever()
-    finally:
-        loop.close()
+        while not shutdown_event.is_set():
+            time.sleep(1)
+    except KeyboardInterrupt:
+        shutdown_event.set()
+
+    print("Shutting down...")
