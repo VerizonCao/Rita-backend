@@ -13,7 +13,7 @@ if len(sys.argv) > 1:
 # will automatically use the LIVEKIT_API_KEY and LIVEKIT_API_SECRET env vars
 token = (
     api.AccessToken()
-    .with_identity("python-bot")
+    .with_identity("python-bot-1")
     .with_name("Python Bot")
     .with_grants(
         api.VideoGrants(
