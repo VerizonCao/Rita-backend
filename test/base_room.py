@@ -161,7 +161,7 @@ async def main(room: rtc.Room) -> None:
             api.VideoGrants(
                 room_join=True,
                 room="my-room",
-                hidden=True,
+                # hidden=True,
             )
         )
         .to_jwt()
