@@ -1,3 +1,3 @@
 # Rita-backend
 
-test discord 1
+test discord
